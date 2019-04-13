@@ -1,7 +1,7 @@
 class Moltenvk < Formula
   desc "Implementation of the Vulkan 1.0 API, that runs on Apple's Metal API"
   homepage "https://github.com/KhronosGroup/MoltenVK"
-  url "https://github.com/KhronosGroup/MoltenVK.git", :tag => "v1.0.33"
+  url "https://github.com/KhronosGroup/MoltenVK.git", :tag => "v1.0.34"
   head "https://github.com/KhronosGroup/MoltenVK.git"
 
   depends_on "cereal" => :build
@@ -41,62 +41,47 @@ class Moltenvk < Formula
 
   def install
     ["Vulkan-Headers", "Vulkan-Portability", "SPIRV-Cross", "glslang", "Vulkan-Tools"].each do |r|
-      (buildpath/"External/#{r}").install resource(r)
+      resource(r).stage(Pathname.pwd/"External"/r)
     end
 
-    (buildpath/"External/glslang/External/spirv-tools").install resource("glslang_SPIRV-Tools")
-    (buildpath/"External/glslang/External/spirv-tools/external/spirv-headers").install resource("glslang_SPIRV-Headers")
+    resource("glslang_SPIRV-Tools").stage(Pathname.pwd/"External/glslang/External/spirv-tools")
+    resource("glslang_SPIRV-Headers").stage(Pathname.pwd/"External/glslang/External/spirv-tools/external/spirv-headers")
 
-    inreplace "#{buildpath}/Scripts/package_ext_libs.sh",
+    inreplace "Scripts/package_ext_libs.sh",
               "make --quiet clean",
               ""
 
-    inreplace "#{buildpath}/ExternalDependencies.xcodeproj/project.pbxproj",
-              "MACOSX_DEPLOYMENT_TARGET = 10.11;",
-              "MACOSX_DEPLOYMENT_TARGET = #{MacOS.version};"
-
-    inreplace "#{buildpath}/MoltenVK/MoltenVK.xcodeproj/project.pbxproj" do |s|
-      s.gsub! '"\"$(SRCROOT)/../External/cereal/include\"",',
+    inreplace "MoltenVK/MoltenVK.xcodeproj/project.pbxproj",
+              '"\"$(SRCROOT)/../External/cereal/include\"",',
               "\"#{Formula["cereal"].opt_include}\","
-      s.gsub! "MACOSX_DEPLOYMENT_TARGET = 10.11;",
-              "MACOSX_DEPLOYMENT_TARGET = #{MacOS.version};"
-    end
-
-    inreplace "#{buildpath}/MoltenVKShaderConverter/MoltenVKShaderConverter.xcodeproj/project.pbxproj",
-              "MACOSX_DEPLOYMENT_TARGET = 10.11;",
-              "MACOSX_DEPLOYMENT_TARGET = #{MacOS.version};"
 
     cd "External/glslang/External/spirv-tools" do
+      # "Building SPIRV-Tools"
+      args = std_cmake_args
+      args << "-DPYTHON_EXECUTABLE=#{Formula["python"].opt_bin}/python3"
+      args << "-DCMAKE_SKIP_RPATH=ON"
+
       mkdir "build" do
-        # "Building SPIRV-Tools"
-        system "cmake",
-               "-DCMAKE_INSTALL_PREFIX=install",
-               "-DCMAKE_BUILD_TYPE=Release",
-               "-DPYTHON_EXECUTABLE=#{Formula["python"].opt_bin}/python3",
-               "-G",
-               "Ninja",
-               ".."
+        system "cmake", "-G", "Ninja", "..", *args
         system "ninja"
       end
     end
 
     xcodebuild "-project",
       "ExternalDependencies.xcodeproj",
-      "-scheme",
-      "ExternalDependencies-macOS",
-      "-derivedDataPath",
-      "#{buildpath}/External/build",
-      "build",
-      "SYMROOT=#{buildpath}/.tmp"
+      "-scheme", "ExternalDependencies-macOS",
+      "-derivedDataPath", "External/build",
+      "SYMROOT=External/build",
+      "OBJROOT=External/build",
+      "build"
 
     xcodebuild "-project",
       "MoltenVKPackaging.xcodeproj",
-      "-scheme",
-      "MoltenVK Package (macOS only)",
-      "-derivedDataPath",
-      "#{buildpath}",
-      "build",
-      "SYMROOT=#{buildpath}/.tmp"
+      "-scheme", "MoltenVK Package (macOS only)",
+      "-derivedDataPath", "#{buildpath}/build",
+      "SYMROOT=#{buildpath}/build",
+      "OBJROOT=#{buildpath}/build",
+      "build"
 
     include.install Dir["Package/Release/MoltenVK/include/*"]
     lib.install Dir["Package/Release/MoltenVK/macOS/dynamic/*"]
