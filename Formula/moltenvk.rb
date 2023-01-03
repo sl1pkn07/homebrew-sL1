@@ -1,13 +1,13 @@
 class Moltenvk < Formula
-  desc "Implementation of the Vulkan 1.1 API, that runs on Apple's Metal API"
+  desc "Implementation of the Vulkan 1.2 API, that runs on Apple's Metal API"
   homepage "https://github.com/KhronosGroup/MoltenVK"
-  url "https://github.com/KhronosGroup/MoltenVK/archive/v1.1.1.tar.gz"
-  sha256 "cd1712c571d4155f4143c435c8551a5cb8cbb311ad7fff03595322ab971682c0"
+  url "https://github.com/KhronosGroup/MoltenVK/archive/v1.2.1.tar.gz"
+  sha256 "4742df8f35473c5a737f2b120ae06aa6b9e8a7a3753b88932e501b06b1d17ea8"
 
   depends_on "cereal" => :build
-  depends_on "cmake" =>  :build
+  depends_on "cmake" => :build
   depends_on "ninja" => :build
-  depends_on "python" => :build
+  depends_on "python@3.11" => :build
   depends_on xcode: ["11.7", :build]
 
   ver = "v#{version}"
@@ -15,16 +15,16 @@ class Moltenvk < Formula
 
   url_mltvk_er = "#{url_gh}/MoltenVk/#{ver}/ExternalRevisions"
   rev_vkh = Utils.safe_popen_read(
-    "curl #{url_mltvk_er}/Vulkan-Headers_repo_revision",
+    "curl #{url_mltvk_er}/Vulkan-Headers_repo_revision | head -n1",
   ).chomp
   rev_spvcr = Utils.safe_popen_read(
-    "curl #{url_mltvk_er}/SPIRV-Cross_repo_revision",
+    "curl #{url_mltvk_er}/SPIRV-Cross_repo_revision | head -n1",
   ).chomp
   rev_glsl = Utils.safe_popen_read(
-    "curl #{url_mltvk_er}/glslang_repo_revision",
+    "curl #{url_mltvk_er}/glslang_repo_revision | head -n1",
   ).chomp
   rev_vkt = Utils.safe_popen_read(
-    "curl #{url_mltvk_er}/Vulkan-Tools_repo_revision",
+    "curl #{url_mltvk_er}/Vulkan-Tools_repo_revision | head -n1",
   ).chomp
 
   url_glsl = "#{url_gh}/glslang/#{rev_glsl}"
@@ -83,7 +83,7 @@ class Moltenvk < Formula
     cd "External/glslang/External/spirv-tools" do
       # "Building SPIRV-Tools"
       args = std_cmake_args
-      args << "-DPYTHON_EXECUTABLE=#{Formula["python"].opt_bin}/python3"
+      args << "-DPYTHON_EXECUTABLE=#{Formula["python@3.11"].opt_bin}/python3.11"
       args << "-DCMAKE_SKIP_RPATH=ON"
 
       mkdir "build" do
@@ -93,45 +93,53 @@ class Moltenvk < Formula
     end
 
     cd "External/glslang" do
-      system "#{Formula["python"].opt_bin}/python3",
+      system "#{Formula["python@3.11"].opt_bin}/python3.11",
        "./build_info.py",
        ".",
        "-i", "./build_info.h.tmpl",
        "-o", "./build/include/glslang/build_info.h"
     end
 
-    xcodebuild "-project", "ExternalDependencies.xcodeproj",
+    xcodebuild "ARCHS=#{Hardware::CPU.arch}", "ONLY_ACTIVE_ARCH=YES",
+               "-project", "ExternalDependencies.xcodeproj",
                "-scheme", "ExternalDependencies-macOS",
                "-derivedDataPath", "External/build",
                "SYMROOT=External/build",
                "OBJROOT=External/build",
                "build"
 
-    xcodebuild "-create-xcframework",
-               "-output", "External/build/Latest/SPIRVTools.xcframework",
-               "-library", "External/build/Release/libSPIRVTools.a"
-    xcodebuild "-create-xcframework",
-               "-output", "External/build/Latest/SPIRVCross.xcframework",
-               "-library", "External/build/Release/libSPIRVCross.a"
-    xcodebuild "-create-xcframework",
-               "-output", "External/build/Latest/glslang.xcframework",
-               "-library", "External/build/Release/libglslang.a"
-
-    xcodebuild "-project", "MoltenVKPackaging.xcodeproj",
+    xcodebuild "ARCHS=#{Hardware::CPU.arch}", "ONLY_ACTIVE_ARCH=YES",
+               "-project", "MoltenVKPackaging.xcodeproj",
                "-scheme", "MoltenVK Package (macOS only)",
                "-derivedDataPath", "#{buildpath}/build",
                "SYMROOT=#{buildpath}/build",
                "OBJROOT=#{buildpath}/build",
                "build"
 
-    include.install Dir["Package/Release/MoltenVK/include/*"]
-    lib.install "Package/Release/MoltenVK/dylib/macOS/libMoltenVK.dylib"
+    (libexec/"lib").install Dir["External/build/Intermediates/XCFrameworkStaging/Release/" \
+                                "Platform/lib{SPIRVCross,SPIRVTools,glslang}.a"]
+    glslang_dir = Pathname.new("External/glslang")
+    Pathname.glob("External/glslang/{glslang,SPIRV}/**/*.{h,hpp}") do |header|
+      header.chmod 0644
+      (libexec/"include"/header.parent.relative_path_from(glslang_dir)).install header
+    end
+    (libexec/"include").install "External/SPIRV-Cross/include/spirv_cross"
+    (libexec/"include").install "External/glslang/External/spirv-tools/include/spirv-tools"
+    (libexec/"include").install "External/Vulkan-Headers/include/vulkan" => "vulkan"
+    (libexec/"include").install "External/Vulkan-Headers/include/vk_video" => "vk_video"
+
     frameworks.install "Package/Release/MoltenVK/MoltenVK.xcframework"
-    (share/"vulkan/icd.d").install "MoltenVK/icd/MoltenVK_icd.json"
+    lib.install "Package/Release/MoltenVK/dylib/macOS/libMoltenVK.dylib"
+    lib.install "build/Release/libMoltenVK.a"
+    include.install "MoltenVK/MoltenVK/API" => "MoltenVK"
+
+    inreplace "MoltenVK/icd/MoltenVK_icd.json",
+              "./libMoltenVK.dylib",
+              (lib/"libMoltenVK.dylib").relative_path_from(share/"vulkan/icd.d")
+    (share/"vulkan").install "MoltenVK/icd" => "icd.d"
 
     include.install Dir["Package/Release/MoltenVKShaderConverter/include/*"]
     frameworks.install "Package/Release/MoltenVKShaderConverter/MoltenVKShaderConverter.xcframework"
-
     bin.install "Package/Release/MoltenVKShaderConverter/Tools/MoltenVKShaderConverter"
   end
 
