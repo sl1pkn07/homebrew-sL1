@@ -1,4 +1,4 @@
-class Moltenvk < Formula
+class MoltenVk < Formula
   desc "Implementation of the Vulkan 1.2 API, that runs on Apple's Metal API"
   homepage "https://github.com/KhronosGroup/MoltenVK"
   url "https://github.com/KhronosGroup/MoltenVK/archive/v1.2.1.tar.gz"
